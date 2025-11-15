@@ -17,21 +17,25 @@ pygame.mixer.init()
 
 
 bus_route_colors = {
+    'small': [
+        '68'
+    ],
     'grey': [
         '33', '49', '4', '14', '84'
     ],
     'blue': [
-        '25', '44', '68', '99'
+        '25', '44', '99'
     ],
     'green': [
         'R4'
     ]
 }
 
-bus_sign_y_offsets = {
-    'grey': 20,
-    'blue': 28,
-    'green': 28
+bus_sign_offsets = {
+    'small': (54, 20),
+    'grey': (154, 20),
+    'blue': (154, 28),
+    'green': (154, 28)
 }
 
 
@@ -66,13 +70,17 @@ class RenderState:
                 return False
             is_up = self.x % 80 < 40
             self.parent.canvas.create_image(self.x, self.y, anchor="nw", image=self.bus_img_up if is_up else self.bus_img_down)
-            self.parent.canvas.create_image(self.x + 154, self.y + bus_sign_y_offsets[self.bus_color] - (4 if is_up else 0), anchor="nw", image=self.text_img)
+            self.parent.canvas.create_image(self.x + bus_sign_offsets[self.bus_color][0], self.y + bus_sign_offsets[self.bus_color][1] - (4 if is_up else 0), anchor="nw", image=self.text_img)
             return True
 
     def __init__(self, canvas: tk.Canvas):
         self.canvas = canvas
         self.canvas_shape = (canvas.winfo_screenwidth(), canvas.winfo_screenheight())
         self.bus_images = {
+            'small': {
+                'up': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_small_up.png'))),
+                'down': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_small_down.png')))
+            },
             'grey': {
                 'up': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_grey_up.png'))),
                 'down': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_grey_down.png')))
