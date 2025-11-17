@@ -31,9 +31,15 @@ def load_gtfs_static_file(file_name: str):
     
 
 def load_gtfs_realtime_data(endpoint: str):
-
-    feed = gtfs_realtime_pb2.FeedMessage()
-    response = requests.get(f'{GTFS_REALTIME_BASE_URL}{endpoint}?apikey={GTFS_API_KEY}')
-    response.raise_for_status()
-    feed.ParseFromString(response.content)
-    return MessageToDict(feed)
+    try:
+        feed = gtfs_realtime_pb2.FeedMessage()
+        response = requests.get(f'{GTFS_REALTIME_BASE_URL}{endpoint}?apikey={GTFS_API_KEY}')
+        response.raise_for_status()
+        feed.ParseFromString(response.content)
+        return MessageToDict(feed)
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching GTFS realtime data: {e}")
+        return None
+    except Exception as e:
+        print(f"Error parsing GTFS realtime data: {e}")
+        return None
