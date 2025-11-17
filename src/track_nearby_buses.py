@@ -5,24 +5,33 @@ from datetime import datetime, timezone, timedelta
 from src.services.gtfs import *
 
 
-routes_data = load_gtfs_static_file('routes')
-route_names_exceptions_data = load_gtfs_static_file('route_names_exceptions')
-trips_data = load_gtfs_static_file('trips')
-stop_times_data = load_gtfs_static_file('stop_times')
+POLL_INTERVAL_S = 1
+ORIGIN_POSITION_LONG_LAT = (-123.248528, 49.266562)
+SEARCH_RADIUS_LONG_LAT = 0.005
+TRIGGER_TRAVEL_DISTANCE_LONG_LAT = 0.001
 
 
-route_ids = {}
-route_ids.update({route['route_short_name']: route['route_id'] for route in routes_data})
-route_ids.update({exception['route_name']: exception['route_id'] for exception in route_names_exceptions_data})
+def load_static_data():
 
-route_names = {v: k for k, v in route_ids.items()}
+    routes_data = load_gtfs_static_file('routes')
+    route_names_exceptions_data = load_gtfs_static_file('route_names_exceptions')
+    trips_data = load_gtfs_static_file('trips')
+    stop_times_data = load_gtfs_static_file('stop_times')
 
-trip_names = {trip['trip_id']: trip['trip_headsign'] for trip in trips_data}
+    route_ids = {}
+    route_ids.update({route['route_short_name']: route['route_id'] for route in routes_data})
+    route_ids.update({exception['route_name']: exception['route_id'] for exception in route_names_exceptions_data})
 
-departure_times = {}
-for stop_time in stop_times_data:
-    if stop_time['trip_id'] not in departure_times:
-        departure_times[stop_time['trip_id']] = stop_time['departure_time']
+    route_names = {v: k for k, v in route_ids.items()}
+
+    trip_names = {trip['trip_id']: trip['trip_headsign'] for trip in trips_data}
+
+    departure_times = {}
+    for stop_time in stop_times_data:
+        if stop_time['trip_id'] not in departure_times:
+            departure_times[stop_time['trip_id']] = stop_time['departure_time']
+
+    return route_ids, route_names, trip_names, departure_times
 
 
 class NearbyBusLog:
@@ -33,11 +42,11 @@ class NearbyBusLog:
             self.parent = parent
             self.trip_id = trip_id
             self.trip_name = trip_name
-            self.previous_positions = []
+            self.previous_positions = [(x, y)]
             self.timestamp = timestamp
             self.departure_time = departure_time
 
-            self.observed = False
+            self.triggered = False
 
         @property
         def distance_traveled(self):
@@ -45,112 +54,109 @@ class NearbyBusLog:
             if len(self.previous_positions) < 2: return 0
             return sum([np.linalg.norm(np.subtract(np.array(self.previous_positions[i]), np.array(self.previous_positions[i + 1]))) for i in range(len(self.previous_positions) - 1)])
 
-        def update(self, x, y, timestamp):
+        def update_and_trigger(self, x, y, timestamp):
 
-            just_observed = False
-            if not self.observed and \
+            just_triggered = False
+            if not self.triggered and \
                 'UBC' not in self.trip_name and \
-                self.distance_traveled > 0.001 and \
+                self.distance_traveled > TRIGGER_TRAVEL_DISTANCE_LONG_LAT and \
                 np.linalg.norm(np.array([self.parent.x, self.parent.y]) - np.array([x, y])) < self.parent.radius:
-                self.observed = True
-                just_observed = True
+                self.triggered = True
+                just_triggered = True
 
             self.previous_positions.append((x, y))
             self.timestamp = timestamp
 
-            return just_observed
+            return just_triggered
+        
 
-    def __init__(self, x, y, radius):
-        self.x = x
-        self.y = y
+    def __init__(self, origin, radius, static_route_ids, static_route_names, static_trip_names, static_departure_times):
+        self.x = origin[0]
+        self.y = origin[1]
         self.radius = radius
         self.buses = {}
 
-    def update_buses(self):
+        self.static_route_ids = static_route_ids
+        self.static_route_names = static_route_names
+        self.static_trip_names = static_trip_names
+        self.static_departure_times = static_departure_times
 
-        vehicle_position_data = load_gtfs_realtime_data(GTFS_REALTIME_VEHICLE_POSITION_ENDPOINT)
-        if vehicle_position_data == None:
+    def create_bus_entry(self, vehicle_data):
+
+        self.buses[vehicle_data['trip_id']] = NearbyBusLog.BusEntry(
+            parent=self,
+            trip_id=vehicle_data['trip_id'],
+            trip_name=vehicle_data['trip_name'],
+            x=vehicle_data['x'],
+            y=vehicle_data['y'],
+            timestamp=vehicle_data['timestamp'],
+            departure_time=vehicle_data['departure_time']
+        )
+
+    def update_bus_entry(self, vehicle_data):
+
+        return self.buses[vehicle_data['trip_id']].update_and_trigger(
+            x=vehicle_data['x'],
+            y=vehicle_data['y'],
+            timestamp=vehicle_data['timestamp']
+        )
+
+    def update_and_trigger_buses(self):
+
+        raw_vehicle_position_data = load_gtfs_realtime_data(GTFS_REALTIME_VEHICLE_POSITION_ENDPOINT)
+        if raw_vehicle_position_data == None:
             return []
 
-        parsed_vehicle_position_data = parse_vehicle_position_data(vehicle_position_data)
+        parsed_vehicle_position_data = self.parse_vehicle_position_data(raw_vehicle_position_data)
 
-        just_observed_vehicles = []
+        triggered_vehicles = []
 
-        for vehicle in parsed_vehicle_position_data:
-            if vehicle['trip_id'] not in self.buses:
-                self.buses[vehicle['trip_id']] = NearbyBusLog.BusEntry(
-                    parent=self,
-                    trip_id=vehicle['trip_id'],
-                    trip_name=vehicle['trip_name'],
-                    x=vehicle['x'],
-                    y=vehicle['y'],
-                    timestamp=vehicle['timestamp'],
-                    departure_time =vehicle['departure_time']
-                )
+        for vehicle_data in parsed_vehicle_position_data:
+            if vehicle_data['trip_id'] not in self.buses:
+                self.create_bus_entry(vehicle_data)
             else:
-                just_observed = self.buses[vehicle['trip_id']].update(
-                    x=vehicle['x'],
-                    y=vehicle['y'],
-                    timestamp=vehicle['timestamp']
-                )
-                if just_observed:
-                    just_observed_vehicles.append(vehicle)
+                triggered = self.update_bus_entry(vehicle_data)
+                if triggered:
+                    triggered_vehicles.append(vehicle_data)
 
-        return just_observed_vehicles
+        return triggered_vehicles
 
 
-def parse_vehicle_position_data(vehicle_position_data: dict):
+    def parse_vehicle_position_data(self, vehicle_position_data: dict):
 
-    vehicles = []
+        vehicles = []
 
-    for entity in vehicle_position_data.get("entity", []):
+        for entity in vehicle_position_data.get("entity", []):
 
-        vehicle = entity.get("vehicle", {})
-        trip = vehicle.get("trip", {})
-        route_id = trip.get("routeId", "")
-        route_name = route_names.get(route_id, "Unknown")
-        id = entity.get("id", "")
-        trip_name = trip_names.get(id, "Unknown")
-        timestamp = vehicle.get("timestamp", 0)
-        departure_time = departure_times.get(id, "Unknown")
+            vehicle = entity.get("vehicle", {})
+            trip = vehicle.get("trip", {})
+            route_id = trip.get("routeId", "")
+            route_name = self.static_route_names.get(route_id, "Unknown")
+            id = entity.get("id", "")
+            trip_name = self.static_trip_names.get(id, "Unknown")
+            timestamp = vehicle.get("timestamp", 0)
+            departure_time = self.static_departure_times.get(id, "Unknown")
 
-        vehicles.append({
-            'trip_id': int(id),
-            'trip_name': trip_name,
-            'route_name': route_name,
-            'x': vehicle.get("position", {}).get("longitude"),
-            'y': vehicle.get("position", {}).get("latitude"),
-            'timestamp': datetime.fromtimestamp(int(timestamp), tz=timezone.utc).astimezone(timezone(timedelta(hours=-8))).strftime('%H:%M:%S'),
-            'departure_time': departure_time
-        })
+            vehicles.append({
+                'trip_id': int(id),
+                'trip_name': trip_name,
+                'route_name': route_name,
+                'x': vehicle.get("position", {}).get("longitude"),
+                'y': vehicle.get("position", {}).get("latitude"),
+                'timestamp': datetime.fromtimestamp(int(timestamp), tz=timezone.utc).astimezone(timezone(timedelta(hours=-8))).strftime('%H:%M:%S'),
+                'departure_time': departure_time
+            })
 
-    return vehicles
-
-
-def distance_to_line_segment(p, v, w):
-    l2 = np.sum((w - v) ** 2)
-    t = max(0, min(1, np.dot(p - v, w - v) / l2))
-    projection = v + t * (w - v)
-
-    return np.linalg.norm(p - projection)
+        return vehicles
 
 
-def track_nearby_buses(bus_list: list, bus_list_lock: threading.RLock):
+def track_nearby_buses(triggered_bus_list: list, triggered_bus_list_lock: threading.RLock):
 
-    nearby_bus_log = NearbyBusLog(x=-123.248528, y=49.266562, radius=0.005)
+    nearby_bus_log = NearbyBusLog(ORIGIN_POSITION_LONG_LAT, SEARCH_RADIUS_LONG_LAT, *load_static_data())
 
     while True:
-        just_observed_vehicles = nearby_bus_log.update_buses()
-        with bus_list_lock:
-            for vehicle in just_observed_vehicles:
-                bus_list.append(vehicle)
-        time.sleep(1)
-
-
-if __name__ == '__main__':
-
-    nearby_bus_log = NearbyBusLog(x=-123.248528, y=49.266562, radius=0.005)
-    
-    while True:
-        nearby_bus_log.update_buses()
-        time.sleep(1)
+        triggered_buses = nearby_bus_log.update_and_trigger_buses()
+        with triggered_bus_list_lock:
+            for vehicle in triggered_buses:
+                triggered_bus_list.append(vehicle)
+        time.sleep(POLL_INTERVAL_S)

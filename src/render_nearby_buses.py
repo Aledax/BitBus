@@ -8,15 +8,20 @@ import time
 import threading
 import tkinter as tk
 import random
+
 import pygame
+pygame.mixer.init()
+
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 from src.track_nearby_buses import track_nearby_buses
 
 
-pygame.mixer.init()
+BUS_IMAGE_PATH = os.path.join('assets', 'images')
+BUS_SIGN_FONT_PATH = os.path.join('assets', 'fonts', 'vhs-gothic.ttf')
+BUS_ENGINE_SOUND_PATH = os.path.join('assets', 'sounds', 'engine.wav')
+BUS_BEEP_SOUND_PATH = os.path.join('assets', 'sounds', 'beep3.wav')
 
-
-bus_route_colors = {
+BUS_ROUTE_COLORS = {
     'small': [
         '68'
     ],
@@ -30,13 +35,20 @@ bus_route_colors = {
         'R4'
     ]
 }
-
-bus_sign_offsets = {
+BUS_SIGN_FONTSIZE = 10
+BUS_SIGN_COLOR = (255, 165, 0, 255)
+BUS_SIGN_PIXEL_OFFSETS = {
     'small': (54, 20),
     'grey': (154, 20),
     'blue': (154, 28),
     'green': (154, 28)
 }
+
+BUS_SPEED_PIXELS_PER_S = 200
+BUS_BOUNCE_INTERVAL_PIXELS = 80
+BUS_BOUNCE_SIGN_OFFSET_PIXELS = 4
+BUS_JUMP_VELOCITY_PIXELS_PER_S = lambda: random.uniform(-500, -250)
+BUS_GRAVITY_PIXELS_PER_S2 = 1600
 
 
 class RenderState:
@@ -46,54 +58,49 @@ class RenderState:
         def __init__(self, parent, bus_data):
             self.parent = parent
             self.bus_data = bus_data
-            color_list = [color for color in bus_route_colors if bus_data['route_name'] in bus_route_colors[color]]
-            self.bus_color = 'grey' if len(color_list) == 0 else color_list[0]
-            self.bus_img_up = parent.bus_images[self.bus_color]['up']
-            self.bus_img_down = parent.bus_images[self.bus_color]['down']
-            self.x = -self.bus_img_up.width()
-            self.y = self.parent.canvas_shape[1] - self.bus_img_up.height()
-            self.text_img = create_text_image(
-                text=bus_data['route_name'],
-                font_path="assets/fonts/vhs-gothic.ttf",
-                font_size=10,
-                color=(255, 165, 0, 255)  # orange
-            )
             self.active = True
 
+            self.bus_color = 'grey'
+            for color in BUS_ROUTE_COLORS:
+                if bus_data['route_name'] in BUS_ROUTE_COLORS[color]:
+                    self.bus_color = color
+                    break
+
+            self.bus_img_up = ImageTk.PhotoImage(Image.open(os.path.join(BUS_IMAGE_PATH, f'bus_{self.bus_color}_up.png')))
+            self.bus_img_down = ImageTk.PhotoImage(Image.open(os.path.join(BUS_IMAGE_PATH, f'bus_{self.bus_color}_down.png')))
+
+            self.x = -self.bus_img_up.width()
+            self.y = self.parent.canvas_shape[1] - self.bus_img_up.height()
+            self.velocity_y = 0
+
+            self.text_img = create_text_image(
+                text=bus_data['route_name'],
+                font_path=BUS_SIGN_FONT_PATH,
+                font_size=BUS_SIGN_FONTSIZE,
+                color=BUS_SIGN_COLOR
+            )
+
         def update(self, dt_s: float):
-            self.x += 200 * dt_s
+            self.x += BUS_SPEED_PIXELS_PER_S * dt_s
+            self.velocity_y += BUS_GRAVITY_PIXELS_PER_S2 * dt_s
+            self.y += self.velocity_y * dt_s
+            if self.y > self.parent.canvas_shape[1] - self.bus_img_up.height():
+                self.y = self.parent.canvas_shape[1] - self.bus_img_up.height()
+                self.velocity_y = 0
             if self.x > self.parent.canvas_shape[0]:
                 self.active = False
 
         def render(self):
             if not self.active:
                 return False
-            is_up = self.x % 80 < 40
+            is_up = self.x % BUS_BOUNCE_INTERVAL_PIXELS < (BUS_BOUNCE_INTERVAL_PIXELS / 2)
             self.parent.canvas.create_image(self.x, self.y, anchor="nw", image=self.bus_img_up if is_up else self.bus_img_down)
-            self.parent.canvas.create_image(self.x + bus_sign_offsets[self.bus_color][0], self.y + bus_sign_offsets[self.bus_color][1] - (4 if is_up else 0), anchor="nw", image=self.text_img)
+            self.parent.canvas.create_image(self.x + BUS_SIGN_PIXEL_OFFSETS[self.bus_color][0], self.y + BUS_SIGN_PIXEL_OFFSETS[self.bus_color][1] - (BUS_BOUNCE_SIGN_OFFSET_PIXELS if is_up else 0), anchor="nw", image=self.text_img)
             return True
 
     def __init__(self, canvas: tk.Canvas):
         self.canvas = canvas
         self.canvas_shape = (canvas.winfo_screenwidth(), canvas.winfo_screenheight())
-        self.bus_images = {
-            'small': {
-                'up': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_small_up.png'))),
-                'down': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_small_down.png')))
-            },
-            'grey': {
-                'up': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_grey_up.png'))),
-                'down': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_grey_down.png')))
-            },
-            'blue': {
-                'up': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_blue_up.png'))),
-                'down': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_blue_down.png')))
-            },
-            'green': {
-                'up': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_green_up.png'))),
-                'down': ImageTk.PhotoImage(Image.open(os.path.join('assets', 'images', 'bus_green_down.png')))
-            }
-        }
 
         self.buses = []
         self.bus_lock = threading.RLock()
@@ -104,7 +111,7 @@ class RenderState:
         self.rendered_buses = []
         self.previous_advance_time = None
 
-        self.engine_sound = pygame.mixer.Sound(os.path.join('assets', 'sounds', 'engine.wav'))
+        self.engine_sound = pygame.mixer.Sound(BUS_ENGINE_SOUND_PATH)
         self.engine_channel = self.engine_sound.play(loops=-1)
         self.engine_channel.set_volume(0)
 
@@ -142,6 +149,13 @@ class RenderState:
         else:
             self.engine_channel.set_volume(max(0, self.engine_channel.get_volume() - 0.0005))
 
+    def handle_click(self, click_position):
+        for bus in self.rendered_buses:
+            if bus.x <= click_position[0] <= bus.x + bus.bus_img_up.width() and \
+               bus.y <= click_position[1] <= bus.y + bus.bus_img_up.height():
+                bus.velocity_y = BUS_JUMP_VELOCITY_PIXELS_PER_S()
+
+
 def create_text_image(text: str, font_path: str, font_size: int, color: tuple):
     font = ImageFont.truetype(font_path, font_size)
     img = Image.new("RGBA", (400, 200), (0, 0, 0, 0))
@@ -151,14 +165,18 @@ def create_text_image(text: str, font_path: str, font_size: int, color: tuple):
     return ImageTk.PhotoImage(img)
 
 
-def update(root: tk.Tk, canvas: tk.Canvas, state: RenderState):
+def update_tk(root: tk.Tk, canvas: tk.Canvas, state: RenderState):
     state.advance()
     state.render()
-    root.after(10, update, root, canvas, state)
+    root.after(10, update_tk, root, canvas, state)
 
 
-def beep():
-    sound = pygame.mixer.Sound(os.path.join('assets', 'sounds', 'beep3.wav'))
+def handle_click_tk(state: RenderState):
+    click_position = (state.canvas.winfo_pointerx(), state.canvas.winfo_pointery())
+
+    state.handle_click(click_position)
+
+    sound = pygame.mixer.Sound(BUS_BEEP_SOUND_PATH)
     sound.set_volume(0.5)
     sound.play()
 
@@ -168,17 +186,18 @@ if __name__ == '__main__':
     root.attributes('-topmost', True)
     root.attributes('-transparentcolor', 'white')
     root.overrideredirect(True)
-    root.bind('<Escape>', lambda e: root.destroy())
-    root.bind('<Button-1>', lambda e: beep())
-
+    
     canvas = tk.Canvas(root, width=root.winfo_screenwidth(), height=root.winfo_screenheight(), bg='white', highlightthickness=0)
     canvas.pack()
 
     state = RenderState(canvas)
 
+    root.bind('<Escape>', lambda _: root.destroy())
+    root.bind('<Button-1>', lambda _: handle_click_tk(state))
+
     tracking_thread = threading.Thread(target=track_nearby_buses, args=(state.buses, state.bus_lock), daemon=True)
     tracking_thread.start()
 
-    update(root, canvas, state)
+    update_tk(root, canvas, state)
 
     root.mainloop()
