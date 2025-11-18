@@ -52,8 +52,8 @@ BUS_BOUNCE_SIGN_OFFSET_PIXELS = 4
 BUS_JUMP_VELOCITY_PIXELS_PER_S = lambda: random.uniform(-500, -250)
 BUS_GRAVITY_PIXELS_PER_S2 = 2000
 BUS_HEAT_PER_CLICK = 0.1
-BUS_COOLDOWN_PER_S = 0.1
-EXPLOSION_ANIMATION_FRAME_DURATION_S = 0.05
+BUS_COOLDOWN_PER_S = 0.15
+EXPLOSION_ANIMATION_FRAME_DURATION_S = 0.1
 EXPLOSION_OFFSET = (0, -96)
 
 
@@ -103,6 +103,7 @@ class RenderState:
                 if self.heat >= 1:
                     self.exploded = True
                     self.active = False
+                    self.parent.explosion_sound.stop()
                     self.parent.explosion_sound.play()
                 else:
                     self.x += BUS_SPEED_PIXELS_PER_S * dt_s
