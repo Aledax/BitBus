@@ -47,7 +47,7 @@ BUS_SIGN_PIXEL_OFFSETS = {
 BUS_SPEED_PIXELS_PER_S = 200
 BUS_BOUNCE_INTERVAL_PIXELS = 80
 BUS_BOUNCE_SIGN_OFFSET_PIXELS = 4
-BUS_JUMP_VELOCITY_PIXELS_PER_S = lambda: random.uniform(-500, -250)
+BUS_JUMP_VELOCITY_PIXELS_PER_S = lambda: random.uniform(-400, -200)
 BUS_GRAVITY_PIXELS_PER_S2 = 1600
 
 
@@ -177,7 +177,7 @@ def handle_click_tk(state: RenderState):
     state.handle_click(click_position)
 
     sound = pygame.mixer.Sound(BUS_BEEP_SOUND_PATH)
-    sound.set_volume(0.5)
+    sound.set_volume(0.3)
     sound.play()
 
 
