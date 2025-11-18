@@ -16,10 +16,12 @@ from PIL import Image, ImageTk, ImageDraw, ImageFont
 from src.track_nearby_buses import track_nearby_buses
 
 
-BUS_IMAGE_PATH = os.path.join('assets', 'images')
+BUS_IMAGE_PATH = os.path.join('assets', 'images', 'bus')
+EXPLOSION_IMAGE_PATH = lambda frame: os.path.join('assets', 'images', 'explosion', f'explosion_{frame}.png')
 BUS_SIGN_FONT_PATH = os.path.join('assets', 'fonts', 'vhs-gothic.ttf')
 BUS_ENGINE_SOUND_PATH = os.path.join('assets', 'sounds', 'engine.wav')
 BUS_BEEP_SOUND_PATH = os.path.join('assets', 'sounds', 'beep3.wav')
+EXPLOSION_SOUND_PATH = os.path.join('assets', 'sounds', 'explosion.wav')
 
 BUS_ROUTE_COLORS = {
     'small': [
@@ -47,8 +49,12 @@ BUS_SIGN_PIXEL_OFFSETS = {
 BUS_SPEED_PIXELS_PER_S = 200
 BUS_BOUNCE_INTERVAL_PIXELS = 80
 BUS_BOUNCE_SIGN_OFFSET_PIXELS = 4
-BUS_JUMP_VELOCITY_PIXELS_PER_S = lambda: random.uniform(-400, -200)
-BUS_GRAVITY_PIXELS_PER_S2 = 1600
+BUS_JUMP_VELOCITY_PIXELS_PER_S = lambda: random.uniform(-500, -250)
+BUS_GRAVITY_PIXELS_PER_S2 = 2000
+BUS_HEAT_PER_CLICK = 0.1
+BUS_COOLDOWN_PER_S = 0.1
+EXPLOSION_ANIMATION_FRAME_DURATION_S = 0.05
+EXPLOSION_OFFSET = (0, -96)
 
 
 class RenderState:
@@ -68,10 +74,15 @@ class RenderState:
 
             self.bus_img_up = ImageTk.PhotoImage(Image.open(os.path.join(BUS_IMAGE_PATH, f'bus_{self.bus_color}_up.png')))
             self.bus_img_down = ImageTk.PhotoImage(Image.open(os.path.join(BUS_IMAGE_PATH, f'bus_{self.bus_color}_down.png')))
+            self.explosion_offset = ( (self.bus_img_up.width() - parent.explosion_size[0]) // 2,
+                                      (self.bus_img_up.height() - parent.explosion_size[1]) // 2 )
 
             self.x = -self.bus_img_up.width()
             self.y = self.parent.canvas_shape[1] - self.bus_img_up.height()
             self.velocity_y = 0
+            self.heat = 0
+            self.exploded = False
+            self.explosion_animation_time = 0
 
             self.text_img = create_text_image(
                 text=bus_data['route_name'],
@@ -80,23 +91,43 @@ class RenderState:
                 color=BUS_SIGN_COLOR
             )
 
+        def handle_click(self):
+            self.velocity_y = BUS_JUMP_VELOCITY_PIXELS_PER_S()
+            self.heat = self.heat + BUS_HEAT_PER_CLICK
+
         def update(self, dt_s: float):
-            self.x += BUS_SPEED_PIXELS_PER_S * dt_s
-            self.velocity_y += BUS_GRAVITY_PIXELS_PER_S2 * dt_s
-            self.y += self.velocity_y * dt_s
-            if self.y > self.parent.canvas_shape[1] - self.bus_img_up.height():
-                self.y = self.parent.canvas_shape[1] - self.bus_img_up.height()
-                self.velocity_y = 0
-            if self.x > self.parent.canvas_shape[0]:
-                self.active = False
+            if self.exploded:
+                self.explosion_animation_time += dt_s
+            else:
+                self.heat = max(0, self.heat - dt_s * BUS_COOLDOWN_PER_S)
+                if self.heat >= 1:
+                    self.exploded = True
+                    self.active = False
+                    self.parent.explosion_sound.play()
+                else:
+                    self.x += BUS_SPEED_PIXELS_PER_S * dt_s
+                    self.velocity_y += BUS_GRAVITY_PIXELS_PER_S2 * dt_s
+                    self.y += self.velocity_y * dt_s
+
+                    if self.y > self.parent.canvas_shape[1] - self.bus_img_up.height():
+                        self.y = self.parent.canvas_shape[1] - self.bus_img_up.height()
+                        self.velocity_y = 0
+                    if self.x > self.parent.canvas_shape[0]:
+                        self.active = False
 
         def render(self):
-            if not self.active:
-                return False
-            is_up = self.x % BUS_BOUNCE_INTERVAL_PIXELS < (BUS_BOUNCE_INTERVAL_PIXELS / 2)
-            self.parent.canvas.create_image(self.x, self.y, anchor="nw", image=self.bus_img_up if is_up else self.bus_img_down)
-            self.parent.canvas.create_image(self.x + BUS_SIGN_PIXEL_OFFSETS[self.bus_color][0], self.y + BUS_SIGN_PIXEL_OFFSETS[self.bus_color][1] - (BUS_BOUNCE_SIGN_OFFSET_PIXELS if is_up else 0), anchor="nw", image=self.text_img)
-            return True
+            if self.active:
+                is_up = self.x % BUS_BOUNCE_INTERVAL_PIXELS < (BUS_BOUNCE_INTERVAL_PIXELS / 2)
+                self.parent.canvas.create_image(self.x, self.y, anchor="nw", image=self.bus_img_up if is_up else self.bus_img_down)
+                self.parent.canvas.create_image(self.x + BUS_SIGN_PIXEL_OFFSETS[self.bus_color][0], self.y + BUS_SIGN_PIXEL_OFFSETS[self.bus_color][1] - (BUS_BOUNCE_SIGN_OFFSET_PIXELS if is_up else 0), anchor="nw", image=self.text_img)
+                return True
+            
+            if self.exploded:
+                frame = int(self.explosion_animation_time / EXPLOSION_ANIMATION_FRAME_DURATION_S)
+                if frame < len(self.parent.explosion_images):
+                    self.parent.canvas.create_image(self.x + self.explosion_offset[0] + EXPLOSION_OFFSET[0], self.y + self.explosion_offset[1] + EXPLOSION_OFFSET[1], anchor="nw", image=self.parent.explosion_images[frame])
+            
+            return False
 
     def __init__(self, canvas: tk.Canvas):
         self.canvas = canvas
@@ -107,6 +138,13 @@ class RenderState:
         self.bus_index = 0
         self.bus_interval = lambda: random.uniform(1.5, 2.5)
         self.bus_interval_timer = 0
+
+        self.explosion_images = [
+            ImageTk.PhotoImage(Image.open(os.path.join(EXPLOSION_IMAGE_PATH(i)))) for i in range(0, 17)
+        ]
+        self.explosion_size = (self.explosion_images[0].width(), self.explosion_images[0].height())
+        self.explosion_sound = pygame.mixer.Sound(EXPLOSION_SOUND_PATH)
+        self.explosion_sound.set_volume(0.5)
 
         self.rendered_buses = []
         self.previous_advance_time = None
@@ -152,7 +190,7 @@ class RenderState:
         for bus in self.rendered_buses:
             if bus.x <= click_position[0] <= bus.x + bus.bus_img_up.width() and \
                bus.y <= click_position[1] <= bus.y + bus.bus_img_up.height():
-                bus.velocity_y = BUS_JUMP_VELOCITY_PIXELS_PER_S()
+                bus.handle_click()
 
 
 def create_text_image(text: str, font_path: str, font_size: int, color: tuple):
