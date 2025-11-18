@@ -126,7 +126,6 @@ class RenderState:
         if self.bus_interval_timer == 0:
             with self.bus_lock:
                 if len(self.buses) > self.bus_index:
-                    print(f'{self.buses[self.bus_index]['timestamp']}: Observed {self.buses[self.bus_index]['route_name']} - {self.buses[self.bus_index]['trip_id']} - {self.buses[self.bus_index]['trip_name']}, Scheduled at {self.buses[self.bus_index]['departure_time']}')
                     self.rendered_buses.append(self.RenderedBus(self, self.buses[self.bus_index]))
                     self.bus_index += 1
                     self.bus_interval_timer = self.bus_interval()

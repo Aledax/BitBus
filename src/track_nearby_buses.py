@@ -1,14 +1,16 @@
 import time
 import threading
+import json
 import numpy as np
 from datetime import datetime, timezone, timedelta
 from src.services.gtfs import *
+from src.utils.special_text import *
 
 
 POLL_INTERVAL_S = 1
 ORIGIN_POSITION_LONG_LAT = (-123.248528, 49.266562)
 SEARCH_RADIUS_LONG_LAT = 0.005
-TRIGGER_TRAVEL_DISTANCE_LONG_LAT = 0.001
+TRIGGER_TRAVEL_DISTANCE_LONG_LAT = 0.002
 
 
 def load_static_data():
@@ -38,34 +40,64 @@ class NearbyBusLog:
 
     class BusEntry:
         
-        def __init__(self, parent, trip_id, trip_name, x, y, timestamp, departure_time):
+        def __init__(self, parent, trip_id, trip_name, route_name, x, y, timestamp, departure_time):
             self.parent = parent
+            self.entry_id = None
             self.trip_id = trip_id
             self.trip_name = trip_name
-            self.previous_positions = [(x, y)]
-            self.timestamp = timestamp
-            self.departure_time = departure_time
+            self.route_name = route_name
+            self.reports = {}
+            self.scheduled_departure_time = departure_time
 
             self.triggered = False
+            self.in_range = False
+            self.update_and_trigger(x, y, timestamp)
+
+        @property
+        def text_color(self):
+            return 0 if self.entry_id is None else self.entry_id % 7
 
         @property
         def distance_traveled(self):
 
-            if len(self.previous_positions) < 2: return 0
-            return sum([np.linalg.norm(np.subtract(np.array(self.previous_positions[i]), np.array(self.previous_positions[i + 1]))) for i in range(len(self.previous_positions) - 1)])
+            if len(self.reports) < 2: return 0
+            positions = list(self.reports.values())
+            return sum([np.linalg.norm(np.subtract(np.array(positions[i]), np.array(positions[i + 1]))) for i in range(len(positions) - 1)])
+        
+        def name(self):
+
+            return f'{self.route_name}/{self.scheduled_departure_time}'
+        
+        def print_reports(self):
+            
+            formatted_reports = {timestamp: hyperlink(f'{pos[0], pos[1]}', f'https://www.google.com/maps?q={pos[1]},{pos[0]}') for timestamp, pos in self.reports.items()}
+            for report in formatted_reports.items():
+                print(f'    {report[0]} - {report[1]}')
 
         def update_and_trigger(self, x, y, timestamp):
+
+            self.reports[timestamp] = (x, y)
+            current_time = datetime.strftime(datetime.now(tz=timezone(timedelta(hours=-8))), '%H:%M:%S')
+            
+            if not self.in_range and \
+                'UBC' not in self.trip_name:
+                for timestamp, position in self.reports.items():
+                    if np.linalg.norm(np.array(position) - np.array(ORIGIN_POSITION_LONG_LAT)) < SEARCH_RADIUS_LONG_LAT:
+                        self.in_range = True
+                        self.entry_id = self.parent.generate_entry_id()
+                        print(f'\n[{current_time}] {color_text(self.name(), self.text_color)} DETECTED')
+                        self.print_reports()
+                        break
 
             just_triggered = False
             if not self.triggered and \
                 'UBC' not in self.trip_name and \
                 self.distance_traveled > TRIGGER_TRAVEL_DISTANCE_LONG_LAT and \
-                np.linalg.norm(np.array([self.parent.x, self.parent.y]) - np.array([x, y])) < self.parent.radius:
+                np.linalg.norm(np.array(ORIGIN_POSITION_LONG_LAT) - np.array([x, y])) < SEARCH_RADIUS_LONG_LAT:
                 self.triggered = True
                 just_triggered = True
-
-            self.previous_positions.append((x, y))
-            self.timestamp = timestamp
+                print(f'\n[{current_time}] {color_text(self.name(), self.text_color)} TRIGGERED')
+                self.print_reports()
 
             return just_triggered
         
@@ -75,11 +107,16 @@ class NearbyBusLog:
         self.y = origin[1]
         self.radius = radius
         self.buses = {}
+        self.entry_id_counter = 0
 
         self.static_route_ids = static_route_ids
         self.static_route_names = static_route_names
         self.static_trip_names = static_trip_names
         self.static_departure_times = static_departure_times
+
+    def generate_entry_id(self):
+        self.entry_id_counter += 1
+        return self.entry_id_counter - 1
 
     def create_bus_entry(self, vehicle_data):
 
@@ -87,6 +124,7 @@ class NearbyBusLog:
             parent=self,
             trip_id=vehicle_data['trip_id'],
             trip_name=vehicle_data['trip_name'],
+            route_name=vehicle_data['route_name'],
             x=vehicle_data['x'],
             y=vehicle_data['y'],
             timestamp=vehicle_data['timestamp'],
@@ -135,7 +173,7 @@ class NearbyBusLog:
             id = entity.get("id", "")
             trip_name = self.static_trip_names.get(id, "Unknown")
             timestamp = vehicle.get("timestamp", 0)
-            departure_time = self.static_departure_times.get(id, "Unknown")
+            departure_time = self.static_departure_times.get(id, "Unknown").strip()
 
             vehicles.append({
                 'trip_id': int(id),
