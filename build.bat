@@ -13,7 +13,7 @@ if not exist "venv\" (
 )
 
 echo Building executable...
-pyinstaller --onefile --name "BusRenderer" ^
+pyinstaller --onefile --name "BitBus" ^
     --add-data "assets;assets" ^
     --add-data "data;data" ^
     --add-data "src;src" ^
