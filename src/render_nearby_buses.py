@@ -219,8 +219,7 @@ def handle_click_tk(state: RenderState):
     sound.set_volume(0.3)
     sound.play()
 
-
-if __name__ == '__main__':
+def main():
     root = tk.Tk()
     root.attributes('-topmost', True)
     root.attributes('-transparentcolor', 'white')
@@ -240,3 +239,6 @@ if __name__ == '__main__':
     update_tk(root, canvas, state)
 
     root.mainloop()
+
+if __name__ == '__main__':
+    main()

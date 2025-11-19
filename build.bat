@@ -26,5 +26,5 @@ pyinstaller --onefile --name "BitBus" ^
     src\render_nearby_buses.py
 
 echo.
-echo Build complete! Executable is in dist\BusRenderer.exe
+echo Build complete! Executable is in dist\BitBus.exe
 pause
