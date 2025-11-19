@@ -1,6 +1,5 @@
 import time
 import threading
-import json
 import numpy as np
 from datetime import datetime, timezone, timedelta
 from src.services.gtfs import *
@@ -55,7 +54,7 @@ class NearbyBusLog:
 
         @property
         def text_color(self):
-            return 0 if self.entry_id is None else self.entry_id % 7
+            return 1 if self.entry_id is None else self.entry_id % 6 + 1
 
         @property
         def distance_traveled(self):

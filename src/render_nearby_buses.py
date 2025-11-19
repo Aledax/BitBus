@@ -14,14 +14,15 @@ pygame.mixer.init()
 
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 from src.track_nearby_buses import track_nearby_buses
+from src.utils.resource_path import *
 
 
-BUS_IMAGE_PATH = os.path.join('assets', 'images', 'bus')
-EXPLOSION_IMAGE_PATH = lambda frame: os.path.join('assets', 'images', 'explosion', f'explosion_{frame}.png')
-BUS_SIGN_FONT_PATH = os.path.join('assets', 'fonts', 'vhs-gothic.ttf')
-BUS_ENGINE_SOUND_PATH = os.path.join('assets', 'sounds', 'engine.wav')
-BUS_BEEP_SOUND_PATH = os.path.join('assets', 'sounds', 'beep3.wav')
-EXPLOSION_SOUND_PATH = os.path.join('assets', 'sounds', 'explosion.wav')
+BUS_IMAGE_PATH = resource_path(os.path.join('assets', 'images', 'bus'))
+EXPLOSION_IMAGE_PATH = lambda frame: resource_path(os.path.join('assets', 'images', 'explosion', f'explosion_{frame}.png'))
+BUS_SIGN_FONT_PATH = resource_path(os.path.join('assets', 'fonts', 'vhs-gothic.ttf'))
+BUS_ENGINE_SOUND_PATH = resource_path(os.path.join('assets', 'sounds', 'engine.wav'))
+BUS_BEEP_SOUND_PATH = resource_path(os.path.join('assets', 'sounds', 'beep3.wav'))
+EXPLOSION_SOUND_PATH = resource_path(os.path.join('assets', 'sounds', 'explosion.wav'))
 
 BUS_ROUTE_COLORS = {
     'small': [
@@ -53,8 +54,8 @@ BUS_JUMP_VELOCITY_PIXELS_PER_S = lambda: random.uniform(-500, -250)
 BUS_GRAVITY_PIXELS_PER_S2 = 2000
 BUS_HEAT_PER_CLICK = 0.1
 BUS_COOLDOWN_PER_S = 0.15
-EXPLOSION_ANIMATION_FRAME_DURATION_S = 0.1
-EXPLOSION_OFFSET = (0, -96)
+EXPLOSION_ANIMATION_FRAME_DURATION_S = 0.075
+EXPLOSION_OFFSET = (0, 0)
 
 
 class RenderState:
